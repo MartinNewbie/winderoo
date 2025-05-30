@@ -118,6 +118,90 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Resetting'
+
+  /motorgeschwindigkeit:
+    post:
+      summary: Setze Motordrehzahl
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [motorgeschwindigkeit]
+              properties:
+                motorgeschwindigkeit:
+                  type: integer
+                  example: 150
+      responses:
+        '200':
+          description: Erfolgreich gesetzt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+
+  /numLEDs:
+    post:
+      summary: Setze LED-Anzahl oder Index
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [numLEDs]
+              properties:
+                numLEDs:
+                  type: integer
+                  example: 5
+      responses:
+        '200':
+          description: Erfolgreich gesetzt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
+
+  /rgb:
+    post:
+      summary: Setze RGB-Farbe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [r, g, b]
+              properties:
+                r:
+                  type: integer
+                  example: 255
+                g:
+                  type: integer
+                  example: 100
+                b:
+                  type: integer
+                  example: 50
+      responses:
+        '200':
+          description: Erfolgreich gesetzt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: OK
 components:
   requestBodies:
     UpdateBody:

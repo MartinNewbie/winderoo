@@ -4,9 +4,9 @@
 	#include <ESP32MX1508.h>
 	#define CH1 1
 	#define CH2 2
-    int motorSpeed = 145;
+ 
 #endif
-
+ 
 MotorControl::MotorControl(int pinA, int pinB, bool pwmMotorControl)
 {
     _pinA = pinA;
@@ -19,7 +19,7 @@ void MotorControl::clockwise()
 {
     #if PWM_MOTOR_CONTROL
         MX1508 pwmControl(_pinA, _pinB, CH1, CH2);
-        pwmControl.motorGo(motorSpeed);
+        pwmControl.motorGo(_motorSpeed);
     #else
         digitalWrite(_pinA, HIGH);
         digitalWrite(_pinB, LOW);
@@ -31,7 +31,7 @@ void MotorControl::countClockwise()
 {
     #if PWM_MOTOR_CONTROL
         MX1508 pwmControl(_pinA, _pinB, CH1, CH2);
-        pwmControl.motorRev(motorSpeed);
+        pwmControl.motorRev(_motorSpeed);
     #else
         digitalWrite(_pinA, LOW);
         digitalWrite(_pinB, HIGH);
@@ -74,4 +74,13 @@ int MotorControl::getMotorDirection()
 void MotorControl::setMotorDirection(int direction)
 {
     _motorDirection = direction;
+}
+
+ void MotorControl::setMotorSpeed(int speed)
+{
+    if (speed >= 0 && speed <= 255) {
+        _motorSpeed = speed;
+        Serial.print("[STATUS] - Motor speed set to: ");
+        Serial.println(String(_motorSpeed));
+    }
 }

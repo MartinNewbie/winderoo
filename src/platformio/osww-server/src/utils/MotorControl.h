@@ -11,6 +11,7 @@ private:
     // 1 = clockwise, 0 = counter clockwise
     int _motorDirection;
     bool _pwmMotorControl;
+    int _motorSpeed = 145;
 
 public:
     MotorControl(int _pinA, int _pinB, bool pwmMotorControl = false);
@@ -26,6 +27,8 @@ public:
     int getMotorDirection();
 
     void setMotorDirection(int direction);
+    
+    void setMotorSpeed(int speed);
 };
 
 #endif

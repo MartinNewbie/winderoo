@@ -9,10 +9,10 @@
 #include <WiFiUdp.h>
 
 #ifdef OLED_ENABLED
-	#include <SPI.h>
-	#include <Wire.h>
-	#include <Adafruit_GFX.h>
-	#include <Adafruit_SSD1306.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #endif
 
 #include "./utils/LedControl.h"
@@ -20,7 +20,7 @@
 
 #include "FS.h"
 #include "ESPAsyncWebServer.h"
-
+#include <FastLED.h>
 /*
  * *************************************************************************************
  * ********************************* CONFIGURABLES *************************************
@@ -43,17 +43,29 @@ int directionalPinB = 26;
 int ledPin = 0;
 int externalButton = 13;
 
+// LED Config
+#define LED_PIN 27
+#define MAX_LEDS 300
+CRGB leds[MAX_LEDS];
+int numLeds = 30; // Standardwert
+CRGB ledColor;
+int r ;
+int g ;
+int b ;
+// MotorSpeed
+int motorSpeed = 145; // Default speed for the motor, can be adjusted based on your motor's specifications
+
 // OLED CONFIG
 bool OLED_INVERT_SCREEN = false;
 bool OLED_ROTATE_SCREEN_180 = false;
 int SCREEN_WIDTH = 128; // OLED display width, in pixels
 int SCREEN_HEIGHT = 64; // OLED display height, in pixels
-int OLED_RESET = -1; // Reset pin number (or -1 if sharing Arduino reset pin)
+int OLED_RESET = -1;	// Reset pin number (or -1 if sharing Arduino reset pin)
 
 // Home Assistant Configuration
-const char* HOME_ASSISTANT_BROKER_IP = "YOUR_HOME_ASSISTANT_IP";
-const char* HOME_ASSISTANT_USERNAME = "YOUR_HOME_ASSISTANT_LOGIN_USERNAME";
-const char* HOME_ASSISTANT_PASSWORD = "YOUR_HOME_ASSISTANT_LOGIN_PASSWORD";
+const char *HOME_ASSISTANT_BROKER_IP = "192.168.0.152";
+const char *HOME_ASSISTANT_USERNAME = "martin";
+const char *HOME_ASSISTANT_PASSWORD = "220708";
 /*
  * *************************************************************************************
  * ******************************* END CONFIGURABLES ***********************************
@@ -93,8 +105,7 @@ struct RUNTIME_VARS
 const float utcOffsetValues[] = {
 	-12, -11, -10, -9.5, -9, -8, -7, -6, -5, -4.5, -4, -3.5, -3, -2, -1, 0,
 	1, 2, 3, 3.5, 4, 4.5, 5, 5.5, 5.75, 6, 6.5, 7, 8, 8.75, 9, 9.5, 10, 10.5,
-	11, 11.5, 12, 12.75, 13, 14
-};
+	11, 11.5, 12, 12.75, 13, 14};
 
 /*
  * DO NOT CHANGE THESE VARIABLES!
@@ -111,67 +122,78 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP);
 
 #if PWM_MOTOR_CONTROL
-	MotorControl motor(directionalPinA, directionalPinB, true);
+MotorControl motor(directionalPinA, directionalPinB, true);
 #else
-	MotorControl motor(directionalPinA, directionalPinB);
+MotorControl motor(directionalPinA, directionalPinB);
 #endif
 
 #ifdef OLED_ENABLED
-	Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #endif
 
 #ifdef HOME_ASSISTANT_ENABLED
-	#include <ArduinoHA.h>
+#include <ArduinoHA.h>
 
-	HADevice device;
-	HAMqtt mqtt(client, device);
+HADevice device;
+HAMqtt mqtt(client, device);
 
-	// Define HA Sensors
-	HASwitch ha_oledSwitch("oled");
-	HANumber ha_rpd("rpd");
-	HASelect ha_selectDirection("direction");
-	HASwitch ha_timerSwitch("timerEnabled");
-	HAButton ha_startButton("startButton");
-	HAButton ha_stopButton("stopButton");
-	HASelect ha_selectHours("hour");
-	HASelect ha_selectMinutes("minutes");
-	HASwitch ha_powerSwitch("power");
-	HASensor ha_rssiReception("rssiReception");
-	HASensor ha_activityState("activity");
+// Define HA Sensors
+HASwitch ha_oledSwitch("oled");
+HANumber ha_rpd("rpd");
+HASelect ha_selectDirection("direction");
+HASwitch ha_timerSwitch("timerEnabled");
+HAButton ha_startButton("startButton");
+HAButton ha_stopButton("stopButton");
+HASelect ha_selectHours("hour");
+HASelect ha_selectMinutes("minutes");
+HASwitch ha_powerSwitch("power");
+HASensor ha_rssiReception("rssiReception");
+HASensor ha_activityState("activity");
 
-	// Define HA Sensors (Setting & Customization)
-	HANumber ha_customWindDuration("customWindDuration");
-	HANumber ha_customWindPauseDuration("customWindPauseDuration");
-	HASensor ha_currentEpoch("currentEpoch");
-	HANumber ha_customDurationInSecondsToCompleteOneRevolution("customDurationInSecondsToCompleteOneRevolution");
-	HASelect ha_rtcGmtOffset("rtcGmtOffset");
-	HASwitch ha_rtcDST("rtcDST");
+// Define HA Sensors (Setting & Customization)
+HANumber ha_customWindDuration("customWindDuration");
+HANumber ha_customWindPauseDuration("customWindPauseDuration");
+HASensor ha_currentEpoch("currentEpoch");
+HANumber ha_customDurationInSecondsToCompleteOneRevolution("customDurationInSecondsToCompleteOneRevolution");
+HASelect ha_rtcGmtOffset("rtcGmtOffset");
+HASwitch ha_rtcDST("rtcDST");
 #endif
+
+void initLEDs(int count)
+{
+	if (count > 0 && count <= MAX_LEDS)
+	{
+		numLeds = count;
+		FastLED.clear();
+		FastLED.show();
+	}
+}
 
 void drawCentreStringToMemory(const char *buf, int x, int y)
 {
-    int16_t x1, y1;
-    uint16_t w, h;
-    display.getTextBounds(buf, 0, y, &x1, &y1, &w, &h); //calc width of new string
-    display.setCursor(x - (w / 2), y);
-    display.print(buf);
+	int16_t x1, y1;
+	uint16_t w, h;
+	display.getTextBounds(buf, 0, y, &x1, &y1, &w, &h); // calc width of new string
+	display.setCursor(x - (w / 2), y);
+	display.print(buf);
 }
 
 void toggleDrawSavingIcon(bool showOnDisplay = false)
 {
-	if (showOnDisplay) 
+	if (showOnDisplay)
 	{
 		// Write to screen buffer
 		display.drawCircle(4, 4, 2, WHITE);
 		return;
 	}
-	
+
 	// remove icon from screen buffer
 	display.drawCircle(4, 4, 2, BLACK);
 	return;
 }
 
-static void drawStaticGUI(bool drawHeaderTitle = false, String title = "Winderoo") {
+static void drawStaticGUI(bool drawHeaderTitle = false, String title = "Winderoo")
+{
 	if (OLED_ENABLED)
 	{
 		display.clearDisplay();
@@ -200,7 +222,8 @@ static void drawStaticGUI(bool drawHeaderTitle = false, String title = "Winderoo
 	}
 }
 
-static void drawTimerStatus() {
+static void drawTimerStatus()
+{
 	if (OLED_ENABLED)
 	{
 		if (userDefinedSettings.timerEnabled == "1")
@@ -217,7 +240,8 @@ static void drawTimerStatus() {
 	}
 }
 
-static void drawWifiStatus() {
+static void drawWifiStatus()
+{
 	if (OLED_ENABLED)
 	{
 		// left aligned cell reception icon
@@ -230,37 +254,42 @@ static void drawWifiStatus() {
 		if (WiFi.RSSI() > -50)
 		{
 			// Excellent reception - 4 bars
-			display.fillRect(14, 55+8, 2, 2, WHITE);
-			display.fillRect(18, 55+6, 2, 4, WHITE);
-			display.fillRect(22, 55+4, 2, 6, WHITE);
-			display.fillRect(26, 55+2, 2, 8, WHITE);
-			if (HOME_ASSISTANT_ENABLED)	ha_rssiReception.setValue("Excellent");
+			display.fillRect(14, 55 + 8, 2, 2, WHITE);
+			display.fillRect(18, 55 + 6, 2, 4, WHITE);
+			display.fillRect(22, 55 + 4, 2, 6, WHITE);
+			display.fillRect(26, 55 + 2, 2, 8, WHITE);
+			if (HOME_ASSISTANT_ENABLED)
+				ha_rssiReception.setValue("Excellent");
 		}
 		else if (WiFi.RSSI() > -60)
 		{
 			// Good reception - 3 bars
-			display.fillRect(14, 55+8, 2, 2, WHITE);
-			display.fillRect(18, 55+6, 2, 4, WHITE);
-			display.fillRect(22, 55+4, 2, 6, WHITE);
-			if (HOME_ASSISTANT_ENABLED) ha_rssiReception.setValue("Good");
+			display.fillRect(14, 55 + 8, 2, 2, WHITE);
+			display.fillRect(18, 55 + 6, 2, 4, WHITE);
+			display.fillRect(22, 55 + 4, 2, 6, WHITE);
+			if (HOME_ASSISTANT_ENABLED)
+				ha_rssiReception.setValue("Good");
 		}
 		else if (WiFi.RSSI() > -70)
 		{
 			// Fair reception - 2 bars
-			display.fillRect(14, 55+8, 2, 2, WHITE);
-			display.fillRect(18, 55+6, 2, 4, WHITE);
-			if (HOME_ASSISTANT_ENABLED) ha_rssiReception.setValue("Fair");
+			display.fillRect(14, 55 + 8, 2, 2, WHITE);
+			display.fillRect(18, 55 + 6, 2, 4, WHITE);
+			if (HOME_ASSISTANT_ENABLED)
+				ha_rssiReception.setValue("Fair");
 		}
 		else
 		{
 			// Terrible reception - 1 bar
-			display.fillRect(14, 55+8, 2, 2, WHITE);
-			if (HOME_ASSISTANT_ENABLED) ha_rssiReception.setValue("Poor");
+			display.fillRect(14, 55 + 8, 2, 2, WHITE);
+			if (HOME_ASSISTANT_ENABLED)
+				ha_rssiReception.setValue("Poor");
 		}
 	}
 }
 
-static void drawDynamicGUI() {
+static void drawDynamicGUI()
+{
 	if (OLED_ENABLED && !screenSleep)
 	{
 
@@ -281,7 +310,8 @@ static void drawDynamicGUI() {
 	}
 }
 
-static void drawNotification(String message) {
+static void drawNotification(String message)
+{
 	if (OLED_ENABLED && !screenSleep)
 	{
 		display.setCursor(0, 0);
@@ -304,7 +334,9 @@ static void drawNotification(String message) {
 	}
 }
 
-template <int N> static void drawMultiLineText(const String (&message)[N]) {
+template <int N>
+static void drawMultiLineText(const String (&message)[N])
+{
 	if (OLED_ENABLED && !screenSleep)
 	{
 		int yInitial = 20;
@@ -323,13 +355,15 @@ template <int N> static void drawMultiLineText(const String (&message)[N]) {
 				drawCentreStringToMemory(message[i].c_str(), 64, yInitial + (yOffset * i));
 			}
 		}
-	display.display();
+		display.display();
 	}
 }
 
-void pauseWindingAndNotify() {
+void pauseWindingAndNotify()
+{
 	int pauseDuration = userDefinedSettings.customWindPauseDuration.toInt();
-	for (int i = 0; i < pauseDuration; i++) {
+	for (int i = 0; i < pauseDuration; i++)
+	{
 		Serial.print("[STATUS] - Remaining seconds: ");
 		Serial.println(pauseDuration - i);
 
@@ -342,37 +376,44 @@ void pauseWindingAndNotify() {
 /**
  * @brief Checks if Home Assistant configuration values are set.
  */
-void checkHomeAssistantConfigValues() {
-    if (strcmp(HOME_ASSISTANT_BROKER_IP, "YOUR_HOME_ASSISTANT_IP") == 0) {
-        Serial.println("ERROR: HOME_ASSISTANT_BROKER_IP is not set! Please configure it in main.cpp");
+void checkHomeAssistantConfigValues()
+{
+	if (strcmp(HOME_ASSISTANT_BROKER_IP, "YOUR_HOME_ASSISTANT_IP") == 0)
+	{
+		Serial.println("ERROR: HOME_ASSISTANT_BROKER_IP is not set! Please configure it in main.cpp");
 
 		String brokerIpErrorMessage[3] = {"Boot Fail!", "HOME_ASSISTANT_BROKER_IP", "is not set!"};
 		drawMultiLineText(brokerIpErrorMessage);
 
-        while (1);  // Halt program execution
-    }
-    if (strcmp(HOME_ASSISTANT_USERNAME, "YOUR_HOME_ASSISTANT_LOGIN_USERNAME") == 0) {
-        Serial.println("ERROR: HOME_ASSISTANT_USERNAME is not set! Please configure it in main.cpp");
+		while (1)
+			; // Halt program execution
+	}
+	if (strcmp(HOME_ASSISTANT_USERNAME, "YOUR_HOME_ASSISTANT_LOGIN_USERNAME") == 0)
+	{
+		Serial.println("ERROR: HOME_ASSISTANT_USERNAME is not set! Please configure it in main.cpp");
 
 		String usernameErrorMessage[3] = {"Boot Fail!", "HOME_ASSISTANT_USERNAME", "is not set!"};
 		drawMultiLineText(usernameErrorMessage);
 
-        while (1);  // Halt program execution
-    }
-    if (strcmp(HOME_ASSISTANT_PASSWORD, "YOUR_HOME_ASSISTANT_LOGIN_PASSWORD") == 0) {
-        Serial.println("ERROR: HOME_ASSISTANT_PASSWORD is  not set! Please configure it in main.cpp");
+		while (1)
+			; // Halt program execution
+	}
+	if (strcmp(HOME_ASSISTANT_PASSWORD, "YOUR_HOME_ASSISTANT_LOGIN_PASSWORD") == 0)
+	{
+		Serial.println("ERROR: HOME_ASSISTANT_PASSWORD is  not set! Please configure it in main.cpp");
 
 		String passwordeErrorMessage[3] = {"Boot Fail!", "HOME_ASSISTANT_PASSWORD", "is not set!"};
 		drawMultiLineText(passwordeErrorMessage);
 
-        while (1);  // Halt program execution
-    }
+		while (1)
+			; // Halt program execution
+	}
 }
 
 /**
  * @brief Returns the index corresponding to a given direction for Home Assistant.
  *
- * This function takes a direction string and returns an integer index that 
+ * This function takes a direction string and returns an integer index that
  * corresponds to the direction for Home Assistant. The mapping is as follows:
  * - "CCW" -> 0
  * - "BOTH" -> 1
@@ -431,7 +472,7 @@ float mapRtcUtcOffsetSelectorForHomeAssistant(int index)
  * - 30 minutes -> index 3
  * - 40 minutes -> index 4
  * - 50 minutes -> index 5
- * 
+ *
  * If the minute value does not match any of the predefined cases, the function
  * returns 0 by default.
  *
@@ -440,22 +481,22 @@ float mapRtcUtcOffsetSelectorForHomeAssistant(int index)
  */
 int getTimerMinutesIndexForHomeAssistant(int minuteValue)
 {
-	switch(minuteValue)
+	switch (minuteValue)
 	{
-		case 0:
-			return 0;
-		case 10:
-			return 1;
-		case 20:
-			return 2;
-		case 30:
-			return 3;
-		case 40:
-			return 4;
-		case 50:
-			return 5;
-		default:
-			return 0;
+	case 0:
+		return 0;
+	case 10:
+		return 1;
+	case 20:
+		return 2;
+	case 30:
+		return 3;
+	case 40:
+		return 4;
+	case 50:
+		return 5;
+	default:
+		return 0;
 	}
 }
 
@@ -505,7 +546,8 @@ void beginWindingRoutine()
 	Serial.println(finishTime);
 
 	drawNotification("Winding");
-	if (HOME_ASSISTANT_ENABLED) ha_activityState.setValue("Winding");
+	if (HOME_ASSISTANT_ENABLED)
+		ha_activityState.setValue("Winding");
 }
 
 /**
@@ -520,17 +562,16 @@ void getTime()
 
 	if (userDefinedSettings.dst)
 	{
-		timeClient.setTimeOffset((userDefinedSettings.gmtOffset + 1) * 3600);  // add 1 hour & convert to seconds
+		timeClient.setTimeOffset((userDefinedSettings.gmtOffset + 1) * 3600); // add 1 hour & convert to seconds
 	}
-	else 
+	else
 	{
-		timeClient.setTimeOffset(userDefinedSettings.gmtOffset * 3600);  // Convert to float to seconds
+		timeClient.setTimeOffset(userDefinedSettings.gmtOffset * 3600); // Convert to float to seconds
 	}
-
 
 	timeClient.update();
 	time_t epochTime = timeClient.getEpochTime();
-	struct tm *ptm = gmtime ((time_t *)&epochTime);
+	struct tm *ptm = gmtime((time_t *)&epochTime);
 
 	int currentYear = ptm->tm_year + 1900;
 	int currentMonth = ptm->tm_mon + 1;
@@ -539,9 +580,9 @@ void getTime()
 	int currentMinute = timeClient.getMinutes();
 	int currentSecond = timeClient.getSeconds();
 
-	Serial.printf("[STATUS] - Date: %d-%02d-%02d Time: %02d:%02d:%02d\n", 
-		currentYear, currentMonth, currentDay,
-		currentHour, currentMinute, currentSecond);
+	Serial.printf("[STATUS] - Date: %d-%02d-%02d Time: %02d:%02d:%02d\n",
+				  currentYear, currentMonth, currentDay,
+				  currentHour, currentMinute, currentSecond);
 
 	rtc.setTime(currentSecond, currentMinute, currentHour, currentDay, currentMonth, currentYear);
 
@@ -550,30 +591,31 @@ void getTime()
 
 /**
  * Update the internal RTC's hours or minutes
- * 
+ *
  * @param rtc is the current rtc instance
  * @param hours the hours value to set
  * @param minutes the minutes value to set
  */
-void updateRtcEpoch(ESP32Time &rtc, int hours, int minutes) {
-    // Get the current epoch
-    unsigned long currentEpoch = rtc.getEpoch();
-    struct tm *timeInfo;
+void updateRtcEpoch(ESP32Time &rtc, int hours, int minutes)
+{
+	// Get the current epoch
+	unsigned long currentEpoch = rtc.getEpoch();
+	struct tm *timeInfo;
 
-    // Convert current epoch to a tm structure
-    time_t rawTime = static_cast<time_t>(currentEpoch);
-    timeInfo = gmtime(&rawTime);
+	// Convert current epoch to a tm structure
+	time_t rawTime = static_cast<time_t>(currentEpoch);
+	timeInfo = gmtime(&rawTime);
 
-    // Update time to the desired hours and minutes
-    timeInfo->tm_hour = hours;
-    timeInfo->tm_min = minutes;
-    timeInfo->tm_sec = 0;  // Reset seconds for a clean time
+	// Update time to the desired hours and minutes
+	timeInfo->tm_hour = hours;
+	timeInfo->tm_min = minutes;
+	timeInfo->tm_sec = 0; // Reset seconds for a clean time
 
-    // Convert back to epoch
-    time_t updatedTime = mktime(timeInfo);
+	// Convert back to epoch
+	time_t updatedTime = mktime(timeInfo);
 
-    // Set the new epoch
-    rtc.setTime(static_cast<unsigned long>(updatedTime), 0);  // Set with 0 microseconds
+	// Set the new epoch
+	rtc.setTime(static_cast<unsigned long>(updatedTime), 0); // Set with 0 microseconds
 }
 
 /**
@@ -601,17 +643,17 @@ void loadConfigVarsFromFile(String file_name)
 		result += (char)this_file.read();
 	}
 
-	userDefinedSettings.status = json["savedStatus"].as<String>();																				// Winding || Stopped = 7char
-	userDefinedSettings.rotationsPerDay = json["savedTPD"].as<String>();																		// min = 100 || max = 960
-	userDefinedSettings.hour = json["savedHour"].as<String>();																					// 00
-	userDefinedSettings.minutes = json["savedMinutes"].as<String>();																			// 00
-	userDefinedSettings.timerEnabled = json["savedTimerState"].as<String>();																	// 0 || 1
-	userDefinedSettings.direction = json["savedDirection"].as<String>();																		// CW || CCW || BOTH
-	userDefinedSettings.customWindDuration = json["customWindDuration"].as<String>();															// 180 (in seconds)
-	userDefinedSettings.customWindPauseDuration = json["customWindPauseDuration"].as<String>();													// 15 (in seconds)
-	userDefinedSettings.customDurationInSecondsToCompleteOneRevolution = json["customDurationInSecondsToCompleteOneRevolution"].as<int>();		// min 1 <-> max 16; default 8
-	userDefinedSettings.gmtOffset = json["gmtOffset"].as<float>();																				// -12 to +14 with decimal steps
-	userDefinedSettings.dst = json["dst"].as<float>();																							// true || false
+	userDefinedSettings.status = json["savedStatus"].as<String>();																		   // Winding || Stopped = 7char
+	userDefinedSettings.rotationsPerDay = json["savedTPD"].as<String>();																   // min = 100 || max = 960
+	userDefinedSettings.hour = json["savedHour"].as<String>();																			   // 00
+	userDefinedSettings.minutes = json["savedMinutes"].as<String>();																	   // 00
+	userDefinedSettings.timerEnabled = json["savedTimerState"].as<String>();															   // 0 || 1
+	userDefinedSettings.direction = json["savedDirection"].as<String>();																   // CW || CCW || BOTH
+	userDefinedSettings.customWindDuration = json["customWindDuration"].as<String>();													   // 180 (in seconds)
+	userDefinedSettings.customWindPauseDuration = json["customWindPauseDuration"].as<String>();											   // 15 (in seconds)
+	userDefinedSettings.customDurationInSecondsToCompleteOneRevolution = json["customDurationInSecondsToCompleteOneRevolution"].as<int>(); // min 1 <-> max 16; default 8
+	userDefinedSettings.gmtOffset = json["gmtOffset"].as<float>();																		   // -12 to +14 with decimal steps
+	userDefinedSettings.dst = json["dst"].as<float>();																					   // true || false
 
 	this_file.close();
 }
@@ -623,7 +665,7 @@ void loadConfigVarsFromFile(String file_name)
  * @param contents entire contents to write to file
  * @return true if successfully wrote to file; else false
  */
-bool writeConfigVarsToFile(String file_name, const RUNTIME_VARS& userDefinedSettings)
+bool writeConfigVarsToFile(String file_name, const RUNTIME_VARS &userDefinedSettings)
 {
 	File this_file = LittleFS.open(file_name, "w");
 
@@ -681,7 +723,7 @@ void startWebserver()
 {
 
 	server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request)
-	{
+			  {
 		AsyncResponseStream *response = request->beginResponseStream("application/json");
 		JsonDocument json;
 		json["status"] = userDefinedSettings.status;
@@ -705,11 +747,10 @@ void startWebserver()
 		json["dst"] = userDefinedSettings.dst;
 		serializeJson(json, *response);
 
-		request->send(response);
-	});
+		request->send(response); });
 
 	server.on("/api/timer", HTTP_POST, [](AsyncWebServerRequest *request)
-	{
+			  {
 		int params = request->params();
 
 		for ( int i = 0; i < params; i++ )
@@ -730,12 +771,10 @@ void startWebserver()
 			request->send(500, "text/plain", "Failed to write new configuration to file");
 		}
 
-		request->send(204);
-	});
+		request->send(204); });
 
 	server.onRequestBody([](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
-	{
-
+						 {
 		if (request->url() == "/api/power")
 		{
 			JsonDocument json;
@@ -763,182 +802,262 @@ void startWebserver()
 				motor.stop();
 				display.clearDisplay();
 				display.display();
-				
-				if (HOME_ASSISTANT_ENABLED) 
+
+				if (HOME_ASSISTANT_ENABLED)
 				{
 					ha_powerSwitch.setState(false);
 					ha_activityState.setValue("Stopped");
 				}
-			} else {
+			}
+			else
+			{
 				drawStaticGUI(true);
 				drawDynamicGUI();
-				if (HOME_ASSISTANT_ENABLED) ha_powerSwitch.setState(true);
+				if (HOME_ASSISTANT_ENABLED)
+					ha_powerSwitch.setState(true);
 			}
 
 			request->send(204);
 		}
-
-		if (request->url() == "/api/update")
+		if (request->url() == "/api/numLEDs")
 		{
-			if (OLED_ENABLED) toggleDrawSavingIcon(true);
-			
 			JsonDocument json;
 			DeserializationError error = deserializeJson(json, data);
-			int arraySize = 7;
-			String requiredKeys[arraySize] = {"rotationDirection", "tpd", "action", "hour", "minutes", "timerEnabled", "screenSleep"};
-
 			if (error)
 			{
-				Serial.println("[ERROR] - Failed to deserialize [update] request body");
-				request->send(500, "text/plain", "Failed to deserialize request body");
+				request->send(400, "text/plain", "Invalid JSON");
 				return;
 			}
+				// update LED RGB
+				if (json.containsKey("numLEDs") && json["numLEDs"].is<int>())
+				{
+					int newCount = json["numLEDs"];
+					Serial.println("[STATUS] - Updating LED count to " + String(newCount));
 
-			// validate request body
+					if (newCount > 0 && newCount <= 300)
+					{
+						initLEDs(newCount);
+					}
+										for (int i = 0; i < numLeds; i++)
+					{
+						leds[i] = CRGB(r, g, b);
+					}
+					FastLED.show();
+				 
+				request->send(200, "application/json", "{\"status\":\"OK\"}");
+				}
+			}
+
+			if (request->url() == "/api/rgb")
+			{
+				JsonDocument json;
+				DeserializationError error = deserializeJson(json, data);
+				if (error)
+				{
+					request->send(400, "text/plain", "Invalid JSON");
+					return;
+				}
+
+				// Jetzt ist das Array sicher initialisiert
+				if (json.containsKey("ledColor") && json["ledColor"].is<JsonObject>())
+				{
+					JsonObject color = json["ledColor"];
+					 r = color["r"] | 0;
+					 g = color["g"] | 0;
+					 b = color["b"] | 0;
+					Serial.println("[STATUS] - Updating R Color to " + String(r));
+
+					for (int i = 0; i < numLeds; i++)
+					{
+						leds[i] = CRGB(r, g, b);
+					}
+					FastLED.show();
+				}
+				request->send(200, "application/json", "{\"status\":\"OK\"}");
+			}
+
+			if (request->url() == "/api/motorSpeed")
+			{
+				JsonDocument json;
+				DeserializationError error = deserializeJson(json, data);
+				if (error)
+				{
+					request->send(400, "text/plain", "Invalid JSON");
+					return;
+				}
+				// update Motor Speed
+
+				if (json.containsKey("motorSpeed") && json["motorSpeed"].is<int>())
+				{
+					int newSpeed = json["motorSpeed"];
+					motor.setMotorSpeed(newSpeed);
+				}
+				request->send(200, "application/json", "{\"status\":\"OK\"}");
+			}
+
+			if (request->url() == "/api/update")
+			{
+				if (OLED_ENABLED)
+					toggleDrawSavingIcon(true);
+
+				JsonDocument json;
+				DeserializationError error = deserializeJson(json, data);
+				int arraySize = 7;
+				String requiredKeys[arraySize] = {"rotationDirection", "tpd", "action", "hour", "minutes", "timerEnabled", "screenSleep"};
+
+				if (error)
+				{
+					Serial.println("[ERROR] - Failed to deserialize [update] request body");
+					request->send(500, "text/plain", "Failed to deserialize request body");
+					return;
+				}
+
+				// validate request body
 				for (int i = 0; i < arraySize; i++)
 				{
-					if(!json[requiredKeys[i]].is<JsonVariant>())
+					if (!json[requiredKeys[i]].is<JsonVariant>())
 					{
-						request->send(400, "text/plain", "Missing required field: '" + requiredKeys[i] +"'");
+						request->send(400, "text/plain", "Missing required field: '" + requiredKeys[i] + "'");
 					}
 				}
 
-			// These values can be mutated / saved directly
-			userDefinedSettings.hour = json["hour"].as<String>();
-			userDefinedSettings.minutes = json["minutes"].as<String>();
-			userDefinedSettings.timerEnabled = json["timerEnabled"].as<String>();
-			userDefinedSettings.customWindDuration = json["customWindDuration"].as<String>();
-			userDefinedSettings.customWindPauseDuration = json["customWindPauseDuration"].as<String>();
-			userDefinedSettings.customDurationInSecondsToCompleteOneRevolution = json["customDurationInSecondsToCompleteOneRevolution"];
+				// These values can be mutated / saved directly
+				userDefinedSettings.hour = json["hour"].as<String>();
+				userDefinedSettings.minutes = json["minutes"].as<String>();
+				userDefinedSettings.timerEnabled = json["timerEnabled"].as<String>();
+				userDefinedSettings.customWindDuration = json["customWindDuration"].as<String>();
+				userDefinedSettings.customWindPauseDuration = json["customWindPauseDuration"].as<String>();
+				userDefinedSettings.customDurationInSecondsToCompleteOneRevolution = json["customDurationInSecondsToCompleteOneRevolution"];
 
-			// // RTC values
-			userDefinedSettings.dst = json["rtcDST"].as<bool>();
-			userDefinedSettings.gmtOffset = json["rtcGmtOffset"].as<float>();
-			float rtcUpdateGmtOffset = userDefinedSettings.gmtOffset;
+				// // RTC values
+				userDefinedSettings.dst = json["rtcDST"].as<bool>();
+				userDefinedSettings.gmtOffset = json["rtcGmtOffset"].as<float>();
+				float rtcUpdateGmtOffset = userDefinedSettings.gmtOffset;
 
-			// These values need to be compared to the current settings / running state
-			String requestRotationDirection = json["rotationDirection"].as<String>();
-			String requestTPD = json["tpd"].as<String>();
-			String requestAction = json["action"].as<String>();
-			screenSleep = json["screenSleep"].as<bool>();
+				// These values need to be compared to the current settings / running state
+				String requestRotationDirection = json["rotationDirection"].as<String>();
+				String requestTPD = json["tpd"].as<String>();
+				String requestAction = json["action"].as<String>();
+				screenSleep = json["screenSleep"].as<bool>();
 
-			// Update Home Assistant state
-			if (HOME_ASSISTANT_ENABLED)
-			{
-				ha_timerSwitch.setState(userDefinedSettings.timerEnabled.toInt());
-				ha_selectHours.setState(userDefinedSettings.hour.toInt());
-				ha_selectMinutes.setState(getTimerMinutesIndexForHomeAssistant(userDefinedSettings.minutes.toInt()));
-				ha_oledSwitch.setState(!screenSleep); // Invert state because naming is hard...
-				ha_rpd.setState(static_cast<int>(requestTPD.toInt()));
-				ha_selectDirection.setState(getDirectionIndexForHomeAssistant(requestRotationDirection));
+				// Update Home Assistant state
+				if (HOME_ASSISTANT_ENABLED)
+				{
+					ha_timerSwitch.setState(userDefinedSettings.timerEnabled.toInt());
+					ha_selectHours.setState(userDefinedSettings.hour.toInt());
+					ha_selectMinutes.setState(getTimerMinutesIndexForHomeAssistant(userDefinedSettings.minutes.toInt()));
+					ha_oledSwitch.setState(!screenSleep); // Invert state because naming is hard...
+					ha_rpd.setState(static_cast<int>(requestTPD.toInt()));
+					ha_selectDirection.setState(getDirectionIndexForHomeAssistant(requestRotationDirection));
 
-				// Settings & Customization
-				ha_customWindDuration.setState(static_cast<int>(userDefinedSettings.customWindDuration.toInt()));
-				ha_customWindPauseDuration.setState(static_cast<int>(userDefinedSettings.customWindPauseDuration.toInt()));
-				ha_customDurationInSecondsToCompleteOneRevolution.setState(userDefinedSettings.customDurationInSecondsToCompleteOneRevolution);
-			}
-
-
-			// Update motor direction
-			if (strcmp(requestRotationDirection.c_str(), userDefinedSettings.direction.c_str()) != 0)
-			{
-				userDefinedSettings.direction = requestRotationDirection;
-				motor.stop();
-				delay(250);
+					// Settings & Customization
+					ha_customWindDuration.setState(static_cast<int>(userDefinedSettings.customWindDuration.toInt()));
+					ha_customWindPauseDuration.setState(static_cast<int>(userDefinedSettings.customWindPauseDuration.toInt()));
+					ha_customDurationInSecondsToCompleteOneRevolution.setState(userDefinedSettings.customDurationInSecondsToCompleteOneRevolution);
+				}
 
 				// Update motor direction
-				if (userDefinedSettings.direction == "CW" )
+				if (strcmp(requestRotationDirection.c_str(), userDefinedSettings.direction.c_str()) != 0)
 				{
-					motor.setMotorDirection(1);
+					userDefinedSettings.direction = requestRotationDirection;
+					motor.stop();
+					delay(250);
+
+					// Update motor direction
+					if (userDefinedSettings.direction == "CW")
+					{
+						motor.setMotorDirection(1);
+					}
+					else if (userDefinedSettings.direction == "CCW")
+					{
+						motor.setMotorDirection(0);
+					}
+
+					Serial.println("[STATUS] - direction set: " + userDefinedSettings.direction);
 				}
-				else if (userDefinedSettings.direction == "CCW")
+				else
 				{
-					motor.setMotorDirection(0);
+					userDefinedSettings.direction = requestRotationDirection;
 				}
 
-				Serial.println("[STATUS] - direction set: " + userDefinedSettings.direction);
-			}
-			else
-			{
-				userDefinedSettings.direction = requestRotationDirection;
-			}
-
-			// Update (turns) rotations per day
-			if (strcmp(requestTPD.c_str(), userDefinedSettings.rotationsPerDay .c_str()) != 0)
-			{
-				userDefinedSettings.rotationsPerDay = requestTPD;
-
-				unsigned long finishTime = calculateWindingTime();
-				estimatedRoutineFinishEpoch = finishTime;
-			}
-
-			// Update action (START/STOP)
-			if ( strcmp(requestAction.c_str(), "START") == 0 )
-			{
-				if (!routineRunning)
+				// Update (turns) rotations per day
+				if (strcmp(requestTPD.c_str(), userDefinedSettings.rotationsPerDay.c_str()) != 0)
 				{
-					userDefinedSettings.status = "Winding";
-					beginWindingRoutine();
-				}
-			}
-			else
-			{
-				motor.stop();
-				routineRunning = false;
-				userDefinedSettings.status = "Stopped";
-				drawNotification("Stopped");
-				if (HOME_ASSISTANT_ENABLED) ha_activityState.setValue("Stopped");
-			}
+					userDefinedSettings.rotationsPerDay = requestTPD;
 
-			// Update screen sleep state
-			if (screenSleep && OLED_ENABLED)
-			{
-				display.clearDisplay();
-				display.display();
-			}
-			else
-			{
+					unsigned long finishTime = calculateWindingTime();
+					estimatedRoutineFinishEpoch = finishTime;
+				}
+
+				// Update action (START/STOP)
+				if (strcmp(requestAction.c_str(), "START") == 0)
+				{
+					if (!routineRunning)
+					{
+						userDefinedSettings.status = "Winding";
+						beginWindingRoutine();
+					}
+				}
+				else
+				{
+					motor.stop();
+					routineRunning = false;
+					userDefinedSettings.status = "Stopped";
+					drawNotification("Stopped");
+					if (HOME_ASSISTANT_ENABLED)
+						ha_activityState.setValue("Stopped");
+				}
+
+				// Update screen sleep state
+				if (screenSleep && OLED_ENABLED)
+				{
+					display.clearDisplay();
+					display.display();
+				}
+				else
+				{
+					if (OLED_ENABLED)
+					{
+						// Draw gui with updated values from _this_ update request
+						drawStaticGUI(true, userDefinedSettings.status);
+						drawDynamicGUI();
+					}
+				}
+
+				if (userDefinedSettings.dst)
+				{
+					rtcUpdateGmtOffset += 1.0; // add 1 hour for DST & convert to seconds
+				}
+
+				timeClient.setTimeOffset(rtcUpdateGmtOffset * 3600); // Convert to seconds
+
+				if (HOME_ASSISTANT_ENABLED)
+				{
+					int haUtcSelectIndex = mapRtcUtcOffsetForAPItoHomeAssistant(userDefinedSettings.gmtOffset);
+
+					ha_rtcGmtOffset.setState(haUtcSelectIndex);
+					ha_rtcDST.setState(userDefinedSettings.dst);
+				}
+
+				getTime();
+
+				// Write new parameters to file
+				bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
+				if (!writeSuccess)
+				{
+					Serial.println("[ERROR] - Failed to write [update] endpoint data to file");
+					request->send(500, "text/plain", "Failed to write new configuration to file");
+				}
+
+				request->send(204);
+
+				// Remove save icon
 				if (OLED_ENABLED)
-				{
-					// Draw gui with updated values from _this_ update request
-					drawStaticGUI(true, userDefinedSettings.status);
-					drawDynamicGUI();
-				}
-			}
-
-			if (userDefinedSettings.dst) {
-				rtcUpdateGmtOffset += 1.0;  // add 1 hour for DST & convert to seconds
-			}
-
-			timeClient.setTimeOffset(rtcUpdateGmtOffset * 3600);  // Convert to seconds
-
-			if (HOME_ASSISTANT_ENABLED) 
-			{
-				int haUtcSelectIndex = mapRtcUtcOffsetForAPItoHomeAssistant(userDefinedSettings.gmtOffset);
-
-				ha_rtcGmtOffset.setState(haUtcSelectIndex);
-				ha_rtcDST.setState(userDefinedSettings.dst);
-			}
-
-			getTime();
-
-			// Write new parameters to file
-			bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-			if ( !writeSuccess )
-			{
-				Serial.println("[ERROR] - Failed to write [update] endpoint data to file");
-				request->send(500, "text/plain", "Failed to write new configuration to file");
-			}
-
-			request->send(204);
-
-			// Remove save icon
-			if (OLED_ENABLED) toggleDrawSavingIcon();
-		}
-	});
+					toggleDrawSavingIcon();
+			} });
 
 	server.on("/api/reset", HTTP_GET, [](AsyncWebServerRequest *request)
-	{
+			  {
 		Serial.println("[STATUS] - Received reset command");
 		AsyncResponseStream *response = request->beginResponseStream("application/json");
 		JsonDocument json;
@@ -946,8 +1065,7 @@ void startWebserver()
 		serializeJson(json, *response);
 		request->send(response);
 
-		reset = true;
-	});
+		reset = true; });
 
 	server.serveStatic("/css/", LittleFS, "/css/").setCacheControl("max-age=31536000");
 	server.serveStatic("/js/", LittleFS, "/js/").setCacheControl("max-age=31536000");
@@ -987,18 +1105,18 @@ void triggerLEDCondition(int blinkState)
 
 	switch (blinkState)
 	{
-		case 1:
-			LED.slowBlink();
-			break;
-		case 2:
-			LED.fastBlink();
-			break;
-		case 3:
-			LED.pwm();
-			break;
-		default:
-			Serial.println("[WARN] - blinkState not recognized");
-			break;
+	case 1:
+		LED.slowBlink();
+		break;
+	case 2:
+		LED.fastBlink();
+		break;
+	case 3:
+		LED.pwm();
+		break;
+	default:
+		Serial.println("[WARN] - blinkState not recognized");
+		break;
 	}
 }
 
@@ -1007,32 +1125,33 @@ void triggerLEDCondition(int blinkState)
  * Credit to github OSWW contribution from user @danagarcia
  *
  * @param pauseInSeconds the amount of time to pause and listen
-*/
+ */
 void awaitWhileListening(int pauseInSeconds)
 {
-  // While waiting for the 1 second to pass, actively monitor/listen for button press.
-  int delayEnd = millis() + (1000 * pauseInSeconds);
-  while (millis() < delayEnd) {
-    // get physical button state
-    int buttonState = digitalRead(externalButton);
-
-	if (buttonState == HIGH)
+	// While waiting for the 1 second to pass, actively monitor/listen for button press.
+	int delayEnd = millis() + (1000 * pauseInSeconds);
+	while (millis() < delayEnd)
 	{
-		if (userDefinedSettings.winderEnabled == "0")
+		// get physical button state
+		int buttonState = digitalRead(externalButton);
+
+		if (buttonState == HIGH)
 		{
-			motor.stop();
-			routineRunning = false;
-			userDefinedSettings.status = "Stopped";
-			Serial.println("[STATUS] - Switched off!");
-			if (HOME_ASSISTANT_ENABLED) ha_activityState.setValue("Stopped");
+			if (userDefinedSettings.winderEnabled == "0")
+			{
+				motor.stop();
+				routineRunning = false;
+				userDefinedSettings.status = "Stopped";
+				Serial.println("[STATUS] - Switched off!");
+				if (HOME_ASSISTANT_ENABLED)
+					ha_activityState.setValue("Stopped");
+			}
+		}
+		else
+		{
+			userDefinedSettings.winderEnabled == "1";
 		}
 	}
-	else
-	{
-		userDefinedSettings.winderEnabled == "1";
-	}
-
-  }
 }
 
 /**
@@ -1080,7 +1199,7 @@ void mqttOnDisconnected()
 	Serial.println("[STATUS] - MQTT disconnected!");
 }
 
-void onOledSwitchCommand(bool state, HASwitch* sender)
+void onOledSwitchCommand(bool state, HASwitch *sender)
 {
 	if (state)
 	{
@@ -1099,12 +1218,12 @@ void onOledSwitchCommand(bool state, HASwitch* sender)
 	sender->setState(state);
 }
 
-void onCustomDurationInSecondsToCompleteOneRevolution(HANumeric number, HANumber* sender)
+void onCustomDurationInSecondsToCompleteOneRevolution(HANumeric number, HANumber *sender)
 {
 	userDefinedSettings.customDurationInSecondsToCompleteOneRevolution = number.toInt16();
 
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write customDurationInSecondsToCompleteOneRevolution number state [MQTT]");
 	}
@@ -1112,14 +1231,14 @@ void onCustomDurationInSecondsToCompleteOneRevolution(HANumeric number, HANumber
 	sender->setCurrentState(number);
 }
 
-void onRpdChangeCommand(HANumeric number, HANumber* sender)
+void onRpdChangeCommand(HANumeric number, HANumber *sender)
 {
 	char buffer[10];
 	number.toStr(buffer);
 	userDefinedSettings.rotationsPerDay = String(buffer);
 
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write rpd number state [MQTT]");
 	}
@@ -1127,14 +1246,14 @@ void onRpdChangeCommand(HANumeric number, HANumber* sender)
 	sender->setCurrentState(number);
 }
 
-void onCustomWindDurationChangeCommand(HANumeric number, HANumber* sender)
+void onCustomWindDurationChangeCommand(HANumeric number, HANumber *sender)
 {
 	char buffer[10];
 	number.toStr(buffer);
 	userDefinedSettings.customWindDuration = String(buffer);
 
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write customWindDuration number state [MQTT]");
 	}
@@ -1142,14 +1261,14 @@ void onCustomWindDurationChangeCommand(HANumeric number, HANumber* sender)
 	sender->setCurrentState(number);
 }
 
-void onCustomWindPauseDurationChangeCommand(HANumeric number, HANumber* sender)
+void onCustomWindPauseDurationChangeCommand(HANumeric number, HANumber *sender)
 {
 	char buffer[10];
 	number.toStr(buffer);
 	userDefinedSettings.customWindPauseDuration = String(buffer);
 
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write customWindPauseDuration state [MQTT]");
 	}
@@ -1157,30 +1276,32 @@ void onCustomWindPauseDurationChangeCommand(HANumeric number, HANumber* sender)
 	sender->setCurrentState(number);
 }
 
-void onSelectDirectionCommand(int8_t index, HASelect* sender) {
-   switch (index) {
-    case 0:
-        // Option "CCW" was selected
+void onSelectDirectionCommand(int8_t index, HASelect *sender)
+{
+	switch (index)
+	{
+	case 0:
+		// Option "CCW" was selected
 		userDefinedSettings.direction = "CCW";
-        break;
+		break;
 
-    case 1:
-        // Option "BOTH" was selected
+	case 1:
+		// Option "BOTH" was selected
 		userDefinedSettings.direction = "BOTH";
-        break;
+		break;
 
-    case 2:
-        // Option "CW" was selected
+	case 2:
+		// Option "CW" was selected
 		userDefinedSettings.direction = "CW";
-        break;
+		break;
 
-    default:
-        // unknown option
-        return;
-    }
+	default:
+		// unknown option
+		return;
+	}
 
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write direction select state [MQTT]");
 	}
@@ -1188,11 +1309,11 @@ void onSelectDirectionCommand(int8_t index, HASelect* sender) {
 	sender->setState(index);
 }
 
-void onTimerSwitchCommand(bool state, HASwitch* sender)
+void onTimerSwitchCommand(bool state, HASwitch *sender)
 {
 	userDefinedSettings.timerEnabled = state ? "1" : "0";
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write timer switch state [MQTT]");
 	}
@@ -1200,11 +1321,11 @@ void onTimerSwitchCommand(bool state, HASwitch* sender)
 	sender->setState(state);
 }
 
-void onRtcDSTCommand(bool state, HASwitch* sender)
+void onRtcDSTCommand(bool state, HASwitch *sender)
 {
 	userDefinedSettings.dst = state ? true : false;
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write DST switch state [MQTT]");
 	}
@@ -1214,7 +1335,7 @@ void onRtcDSTCommand(bool state, HASwitch* sender)
 	sender->setState(state);
 }
 
-void handleHAStartButton(HAButton* sender)
+void handleHAStartButton(HAButton *sender)
 {
 	if (!routineRunning)
 	{
@@ -1222,7 +1343,7 @@ void handleHAStartButton(HAButton* sender)
 	}
 }
 
-void handleHAStopButton(HAButton* sender)
+void handleHAStopButton(HAButton *sender)
 {
 	motor.stop();
 	routineRunning = false;
@@ -1231,33 +1352,36 @@ void handleHAStopButton(HAButton* sender)
 	ha_activityState.setValue("Stopped");
 }
 
-void onSelectRtcUtcOffsetCommand(int8_t index, HASelect* sender)
+void onSelectRtcUtcOffsetCommand(int8_t index, HASelect *sender)
 {
 	Serial.println("[ERROR] - Recieved Selector index position: " + String(index));
 
-    userDefinedSettings.gmtOffset = mapRtcUtcOffsetSelectorForHomeAssistant(index);
+	userDefinedSettings.gmtOffset = mapRtcUtcOffsetSelectorForHomeAssistant(index);
 
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write UTC Offset state [MQTT]");
 	}
 
-    getTime();
+	getTime();
 
 	sender->setState(index);
 }
 
-void onSelectHoursCommand(int8_t index, HASelect* sender)
+void onSelectHoursCommand(int8_t index, HASelect *sender)
 {
-    if (index >= 0 && index <= 23) {
-        userDefinedSettings.hour = index;
-    } else {
-        return; // Exit if index is out of range
-    }
+	if (index >= 0 && index <= 23)
+	{
+		userDefinedSettings.hour = index;
+	}
+	else
+	{
+		return; // Exit if index is out of range
+	}
 
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write hours select state [MQTT]");
 	}
@@ -1265,34 +1389,34 @@ void onSelectHoursCommand(int8_t index, HASelect* sender)
 	sender->setState(index);
 }
 
-void onSelectMinutesCommand(int8_t index, HASelect* sender)
+void onSelectMinutesCommand(int8_t index, HASelect *sender)
 {
-	switch(index)
+	switch (index)
 	{
-		case 0:
-			userDefinedSettings.minutes = "00";
-			break;
-		case 1:
-			userDefinedSettings.minutes = "10";
-			break;
-		case 2:
-			userDefinedSettings.minutes = "20";
-			break;
-		case 3:
-			userDefinedSettings.minutes = "30";
-			break;
-		case 4:
-			userDefinedSettings.minutes = "40";
-			break;
-		case 5:
-			userDefinedSettings.minutes = "50";
-			break;
-		default:
-			return;
+	case 0:
+		userDefinedSettings.minutes = "00";
+		break;
+	case 1:
+		userDefinedSettings.minutes = "10";
+		break;
+	case 2:
+		userDefinedSettings.minutes = "20";
+		break;
+	case 3:
+		userDefinedSettings.minutes = "30";
+		break;
+	case 4:
+		userDefinedSettings.minutes = "40";
+		break;
+	case 5:
+		userDefinedSettings.minutes = "50";
+		break;
+	default:
+		return;
 	}
 
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write minutes select state [MQTT]");
 	}
@@ -1300,7 +1424,7 @@ void onSelectMinutesCommand(int8_t index, HASelect* sender)
 	sender->setState(index);
 }
 
-void onPowerSwitchCommand(bool state, HASwitch* sender)
+void onPowerSwitchCommand(bool state, HASwitch *sender)
 {
 	userDefinedSettings.winderEnabled = state ? "1" : "0";
 
@@ -1313,13 +1437,15 @@ void onPowerSwitchCommand(bool state, HASwitch* sender)
 		display.clearDisplay();
 		display.display();
 		ha_activityState.setValue("Stopped");
-	} else {
+	}
+	else
+	{
 		drawStaticGUI(true);
 		drawDynamicGUI();
 	}
 
 	bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-	if ( !writeSuccess )
+	if (!writeSuccess)
 	{
 		Serial.println("[ERROR] - Failed to write power switch state [MQTT]");
 	}
@@ -1350,13 +1476,18 @@ void setup()
 
 	userDefinedSettings.winderEnabled = true;
 
-	if(OLED_ENABLED)
+	FastLED.addLeds<WS2812B, LED_PIN, GRB>(leds, MAX_LEDS);
+	FastLED.clear();
+	FastLED.show();
+
+	if (OLED_ENABLED)
 	{
 		display.begin(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 		if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
 		{
 			Serial.println(F("SSD1306 allocation failed"));
-			for(;;); // Don't proceed, loop forever
+			for (;;)
+				; // Don't proceed, loop forever
 		}
 		drawStaticGUI();
 
@@ -1381,14 +1512,14 @@ void setup()
 		loadConfigVarsFromFile(settingsFile);
 
 		Serial.println("[STATUS] - initialized with GMT Offset: " + String(userDefinedSettings.gmtOffset) + " and DST: " + String(userDefinedSettings.dst));
-		
+
 		if (userDefinedSettings.dst)
 		{
-			timeClient.setTimeOffset((userDefinedSettings.gmtOffset + 1) * 3600);  // add 1 hour & convert to seconds
+			timeClient.setTimeOffset((userDefinedSettings.gmtOffset + 1) * 3600); // add 1 hour & convert to seconds
 		}
-		else 
+		else
 		{
-			timeClient.setTimeOffset(userDefinedSettings.gmtOffset * 3600);  // Convert to float to seconds
+			timeClient.setTimeOffset(userDefinedSettings.gmtOffset * 3600); // Convert to float to seconds
 		}
 
 		if (!MDNS.begin("winderoo"))
@@ -1400,7 +1531,7 @@ void setup()
 		Serial.println("[STATUS] - mDNS started");
 
 		// Configure Home Assistant
-		if (HOME_ASSISTANT_ENABLED) 
+		if (HOME_ASSISTANT_ENABLED)
 		{
 			checkHomeAssistantConfigValues();
 
@@ -1471,7 +1602,6 @@ void setup()
 			ha_rssiReception.setName("WiFi Reception");
 			ha_rssiReception.setIcon("mdi:antenna");
 
-
 			// Settings & Customization
 			ha_customWindDuration.setName("Time to Rotate");
 			ha_customWindDuration.setIcon("mdi:play-circle-outline");
@@ -1514,8 +1644,7 @@ void setup()
 			ha_rtcGmtOffset.setOptions(
 				"-12;-11;-10;-9.5;-9;-8;-7;-6;-5;-4.5;-4;-3.5;-3;-2;-1;0;"
 				"1;2;3;3.5;4;4.5;5;5.5;5.75;6;6.5;7;8;8.75;9;9.5;10;10.5;"
-				"11;11.5;12;12.75;13;14"
-			);
+				"11;11.5;12;12.75;13;14");
 			int haUtcSelectIndex = mapRtcUtcOffsetForAPItoHomeAssistant(userDefinedSettings.gmtOffset);
 			ha_rtcGmtOffset.setState(haUtcSelectIndex);
 			ha_rtcGmtOffset.onCommand(onSelectRtcUtcOffsetCommand);
@@ -1640,7 +1769,7 @@ void loop()
 					int currentDirection = motor.getMotorDirection();
 					motor.setMotorDirection(!currentDirection);
 					Serial.println("[STATUS] - Motor changing direction, mode: " + userDefinedSettings.direction);
-					
+
 					drawNotification("Winding");
 					motor.determineMotorDirectionAndBegin();
 				}
@@ -1650,11 +1779,11 @@ void loop()
 					motor.stop();
 					Serial.print("[STATUS] - Pause for duration: ");
 					Serial.println(userDefinedSettings.customWindPauseDuration);
-					
+
 					drawNotification("Cycle Pause");
 					pauseWindingAndNotify();
 					drawNotification("Winding");
-					
+
 					previousEpoch = rtc.getEpoch();
 				}
 			}
@@ -1668,11 +1797,12 @@ void loop()
 			if (OLED_ENABLED && !screenSleep)
 			{
 				drawNotification("Winding Complete");
-				if (HOME_ASSISTANT_ENABLED) ha_activityState.setValue("Winding Complete");
+				if (HOME_ASSISTANT_ENABLED)
+					ha_activityState.setValue("Winding Complete");
 			}
 
 			bool writeSuccess = writeConfigVarsToFile(settingsFile, userDefinedSettings);
-			if ( !writeSuccess )
+			if (!writeSuccess)
 			{
 				Serial.println("[ERROR] - Failed to write updated configuration to file");
 			}
@@ -1680,7 +1810,7 @@ void loop()
 	}
 
 	// non-blocking button listener
-	awaitWhileListening(1);	// 1 second
+	awaitWhileListening(1); // 1 second
 
 	if (userDefinedSettings.winderEnabled == "0")
 	{
@@ -1707,5 +1837,4 @@ void loop()
 	}
 
 	wm.process();
-
 }
