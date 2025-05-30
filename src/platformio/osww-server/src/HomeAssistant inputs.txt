@@ -1,0 +1,80 @@
+ // Configuration.yaml
+
+
+rest_command:
+  set_rgb_color:
+    url: "http://"eigeneIP"/api/rgb"
+    method: POST
+    headers:
+      Content-Type: application/json
+    payload: >
+      {
+        "ledColor": {
+          "r": {{ red }},
+          "g": {{ green }},
+          "b": {{ blue }}
+        }
+      }
+
+  set_motor_speed:
+    url: "http://"eigeneIP"/api/motorSpeed"
+    method: POST
+    headers:
+      Content-Type: application/json
+    payload: '{"motorSpeed": {{ speed }}}'
+
+  set_led_number:
+    url: "http://"eigeneIP"/api/numLEDs"
+    method: POST
+    headers:
+      Content-Type: application/json
+    payload: '{"numLEDs": {{ value }}}'
+
+input_number:
+  motor_speed:
+    name: Motorgeschwindigkeit
+    min: 0
+    max: 255
+    step: 1
+
+  led_number:
+    name: LED Anzahl
+    min: 0
+    max: 100
+    step: 1
+
+script:
+  send_motor_speed:
+    alias: Motorgeschwindigkeit senden
+    sequence:
+      - service: rest_command.set_motor_speed
+        data:
+          speed: "{{ states('input_number.motor_speed') | int }}"
+
+  send_led_number:
+    alias: LED Anzahl senden
+    sequence:
+      - service: rest_command.set_led_number
+        data:
+          value: "{{ states('input_number.led_number') | int }}"
+
+
+// Dashboard Manuelles Template 
+
+type: vertical-stack
+cards:
+  - type: entities
+    title: Motor & LED Steuerung
+    entities:
+      - entity: input_number.motor_speed
+      - entity: input_number.led_number
+  - type: button
+    name: Sende Motorgeschwindigkeit
+    tap_action:
+      action: call-service
+      service: script.send_motor_speed
+  - type: button
+    name: Sende LED-Zahl
+    tap_action:
+      action: call-service
+      service: script.send_led_number
